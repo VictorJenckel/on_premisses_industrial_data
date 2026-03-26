@@ -58,4 +58,41 @@ Para garantir que a **Camada Raw (Bronze)** seja um espelho perfeito da máquina
 - Uma DAG específica no Airflow roda diariamente às 23:30 para provisionar automaticamente a partição do dia seguinte.
 
 ### 4. Estratégia de Backups
-- **Backup Diário (Quente):** Um script no `crontab` gera um dump `.sql` do banco todos os dias às 02:00
+- **Backup Diário (Quente):** Um script no `crontab` gera um dump `.sql` do banco todos os dias às 02:00, salvo em uma partição dedicada do servidor.
+- **Backup Trimestral (Frio/Data Lake):** Uma DAG do Airflow roda a cada 3 meses extraindo os dados históricos do PostgreSQL e salvando-os em formato colunar **Parquet**. O pipeline verifica a integridade do arquivo gerado e exclui as partições antigas do banco relacional, otimizando o armazenamento.
+
+### 5. Orquestração e Observabilidade
+- O Airflow centraliza todo o agendamento. Logs detalhados de cada task são registrados localmente para análise de falhas de rede ou de dados.
+- O monitoramento do consumo de recursos do servidor e da saúde dos serviços é feito via **Prometheus e Grafana**.
+
+### 6. Topologia de Rede e Segurança
+- Por operar em um ambiente industrial, o servidor foi implementado em uma rede local restrita (Camada P2 / *Control Network*). Sistemas corporativos acessam os dados de forma controlada através de um gateway preexistente.
+- O firewall do servidor (`ufw`/`iptables`) foi configurado estritamente para as portas necessárias:
+  - `8080/tcp` - Airflow Web UI
+  - `5050/tcp` - pgAdmin / PostgreSQL Web
+  - `5432/tcp` - Conexão direta ao Database
+  - `3000/tcp` - Grafana Dashboards
+  - `22/tcp`   - Acesso remoto administrativo via SSH
+
+---
+
+## 🚀 Como Rodar
+
+O processo foi desenhado para rodar de forma 100% autônoma como um pipeline ETL contínuo:
+1. O Airflow busca os logs nos hosts originais.
+2. Cria cópias em área de *staging* (temporária) no servidor.
+3. Transforma e carrega (Upsert/Insert) os dados no PostgreSQL.
+4. Exclui os arquivos temporários e atualiza os ponteiros de leitura.
+
+Todo o gerenciamento é feito via interface web rodando no próprio servidor:
+- **Airflow:** `http://localhost:8080`
+- **PostgreSQL (Web):** `http://localhost:5050`
+- **Grafana:** `http://localhost:3000`
+
+*(Estes serviços podem ser acessados por outras máquinas da rede local industrial utilizando o IP fixo do servidor).*
+
+### Requisitos do Ambiente
+- Ubuntu 22.04+
+- Python 3.10+
+- PostgreSQL 14+
+- Apache Airflow 2.9+
