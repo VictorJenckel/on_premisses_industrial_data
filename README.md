@@ -1,104 +1,203 @@
-# Projeto Data Server Local (On-Premises)
+# Industrial Edge Data Lake — Flat Glass Inspection Lines
 
-![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
-![Apache Airflow](https://img.shields.io/badge/Apache%20Airflow-017CEE?style=for-the-badge&logo=Apache%20Airflow&logoColor=white)
-![PostgreSQL](https://img.shields.io/badge/postgresql-4169e1?style=for-the-badge&logo=postgresql&logoColor=white)
-![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
-
-
-Este projeto implementa um **mini Data Lake local** rodando em um servidor Linux, com banco de dados **PostgreSQL** e orquestração de processos via **Apache Airflow**.  
-O objetivo é criar uma infraestrutura robusta e escalável para integrar e armazenar dados industriais, aplicando boas práticas de engenharia de dados para lidar com os desafios reais do chão de fábrica.
+**The data foundation layer of an Industrial Digital Twin**  
+From raw machine logs to a structured, audited, always-on data layer —
+ready to feed asset models, predictive analytics, and real-time state synchronization.
 
 ---
 
-## 🏭 Motivação
+## What this is
 
-Este projeto foi criado como parte da minha jornada de transição da área de automação industrial para a engenharia de dados.
-Com mais de 15 anos de experiência em chão de fábrica e sistemas industriais (especialmente CLPs Siemens e integração de redes), minha missão é unir esse conhecimento operacional (OT) com pipelines de dados, ETL e Machine Learning (IT), começando por uma base sólida de ingestão, orquestração e confiabilidade de dados.
+This project is the **data infrastructure backbone** of a Digital Twin system
+for flat glass and mirror inspection lines running in a real manufacturing facility in Brazil.
 
----
+It ingests, deduplicates, and stores inspection events from Eagle Vision machines
+(lines SL2, LRA1, and FSP) into a partitioned PostgreSQL database,
+orchestrated by Apache Airflow and containerized via Docker.
 
-## 🛠️ Stack Utilizada
+The physical assets being digitized: automated optical inspection machines
+that scan glass sheets for defects at production speed.
+Their raw output — timestamped event logs — is the ground truth
+that makes a digital representation of those assets possible.
 
-| Camada               | Ferramenta        | Função                                                                 |
-|----------------------|-------------------|------------------------------------------------------------------------|
-| **SO** | Linux (Ubuntu)    | Ambiente principal de hospedagem.                                      |
-| **Banco de Dados** | PostgreSQL        | Armazenamento analítico com particionamento por data.                  |
-| **Orquestração** | Apache Airflow    | Agendamento, controle de dependências e execução das pipelines ETL.    |
-| **Processamento** | Python (Pandas)   | Limpeza, deduplicação em memória e transformações determinísticas.     |
-| **Monitoramento** | Prometheus + Grafana| Observabilidade da infraestrutura e dos pipelines.                     |
-| **Automação (OS)** | Systemd / Crontab | Gerenciamento de serviços e rotinas de backup.                         |
-
----
-
-## 🧠 Arquitetura e Soluções de Engenharia
-
-Para garantir que a **Camada Raw (Bronze)** seja um espelho perfeito da máquina sem perda de dados, este projeto implementa soluções avançadas para anomalias industriais:
-
-* **Idempotência e Chaves Determinísticas:** Arquivos de log são frequentemente relidos pelas DAGs. Para evitar duplicação, o pipeline gera um sequencial determinístico (`event_seq` via Pandas `cumcount`) baseado na posição física da leitura. Inserções usam `ON CONFLICT DO NOTHING` no PostgreSQL, garantindo que o ETL possa rodar infinitas vezes sem gerar registros duplicados.
-* **Resiliência a Edge Cases Físicos:** O pipeline trata eventos simultâneos (ex: 3 a 4 chapas lidas no mesmo milissegundo pelo scanner), falhas de leitura de sensores (IDs espúrios ou zerados) e o limite de *rollover* de contadores de CLPs de 12 bits, preservando o histórico exato da produção.
-* **Auditoria Contínua:** Uma DAG dedicada roda diariamente para reconciliar matematicamente os arquivos físicos (`.csv` / `.txt`) contra o banco de dados, garantindo 100% de integridade e alertando sobre qualquer *data loss*.
+This is not a tutorial or a sandbox.
+It runs in production, 24 hours a day, handling real manufacturing data.
 
 ---
 
-## 📂 Estrutura do Projeto
+## Why this architecture exists
 
-`datalake_local/`
+Industrial machines don't behave like web APIs.
+They crash, lose power, produce duplicate records, overflow counters,
+and sometimes stamp three events with the exact same millisecond timestamp.
 
-![ArqDBC_airflow](https://github.com/user-attachments/assets/40c52b16-ab68-4e3f-bbf0-dbcaadb4347a)
+Every engineering decision in this project exists to handle those realities:
 
----
+**Deterministic deduplication** — Log files are re-read continuously.
+Rather than relying on timestamps (which are non-deterministic at machine speed),
+the pipeline generates a deterministic sequential key (`event_seq`)
+based on physical read position via `cumcount()`.
+PostgreSQL `ON CONFLICT DO NOTHING` makes every insert idempotent —
+the pipeline can run infinitely without creating duplicate records.
 
-## ⚙️ Funcionamento
+**Edge case resilience** — The pipeline explicitly handles:
+- Simultaneous events (3–4 glass sheets scanned in the same millisecond)
+- Sensor read failures and spurious zero-value IDs
+- 12-bit PLC counter rollovers at the hardware limit
 
-### 1. Automações de Sistema
-- Foram criados serviços usando o `systemd` para iniciar o Airflow Webserver e o Scheduler automaticamente no boot da máquina.
+**Continuous integrity auditing** — A dedicated Airflow DAG runs daily
+to mathematically reconcile physical files (`.csv` / `.txt`) against the database.
+Any discrepancy triggers an alert. Data loss is caught before it compounds.
 
-### 2. ETL das Máquinas (Ingestão)
-- **Máquinas Legadas (Windows XP):** Geram arquivos de log `.txt`. Os arquivos são copiados para uma pasta local temporária e sobrescritos a cada 5 minutos usando `smbclient` orquestrado por uma DAG no Airflow.
-- **Máquinas Modernas (Linux Ubuntu):** Geram arquivos `.csv`. São sincronizados para a pasta temporária usando `rsync` com controle de *watermark* (leitura incremental) para monitoramento de alterações.
-- **Processamento:** Scripts em Python leem os arquivos temporários, aplicam regras de negócio para tipagem e limpeza, garantem a unicidade e inserem os dados no PostgreSQL de forma segura.
-
-### 3. Particionamento de Dados
-- As tabelas de inspeção no banco de dados são **particionadas por data** para garantir performance nas consultas.
-- Uma DAG específica no Airflow roda diariamente às 23:30 para provisionar automaticamente a partição do dia seguinte.
-
-### 4. Estratégia de Backups
-- **Backup Diário (Quente):** Um script no `crontab` gera um dump `.sql` do banco todos os dias às 02:00, salvo em uma partição dedicada do servidor.
-- **Backup Trimestral (Frio/Data Lake):** Uma DAG do Airflow roda a cada 3 meses extraindo os dados históricos do PostgreSQL e salvando-os em formato colunar **Parquet**. O pipeline verifica a integridade do arquivo gerado e exclui as partições antigas do banco relacional, otimizando o armazenamento.
-
-### 5. Orquestração e Observabilidade
-- O Airflow centraliza todo o agendamento. Logs detalhados de cada task são registrados localmente para análise de falhas de rede ou de dados.
-- O monitoramento do consumo de recursos do servidor e da saúde dos serviços é feito via **Prometheus e Grafana**.
-
-### 6. Topologia de Rede e Segurança
-- Por operar em um ambiente industrial, o servidor foi implementado em uma rede local restrita (Camada P2 / *Control Network*). Sistemas corporativos acessam os dados de forma controlada através de um gateway preexistente.
-- O firewall do servidor (`ufw`/`iptables`) foi configurado estritamente para as portas necessárias:
-  - `8080/tcp` - Airflow Web UI
-  - `5050/tcp` - pgAdmin / PostgreSQL Web
-  - `5432/tcp` - Conexão direta ao Database
-  - `3000/tcp` - Grafana Dashboards
-  - `22/tcp`   - Acesso remoto administrativo via SSH
+**Zero-downtime cold archival** — Every quarter, a Rust binary extracts
+historical data from PostgreSQL, compresses it to Parquet (Snappy),
+and executes an instantaneous `DROP TABLE` on the closed partitions —
+freeing disk space without locking production tables.
 
 ---
 
-## 🚀 Como Rodar
+## Architecture
 
-O processo foi desenhado para rodar de forma 100% autônoma como um pipeline ETL contínuo:
-1. O Airflow busca os logs nos hosts originais.
-2. Cria cópias em área de *staging* (temporária) no servidor.
-3. Transforma e carrega (Upsert/Insert) os dados no PostgreSQL.
-4. Exclui os arquivos temporários e atualiza os ponteiros de leitura.
+```
+Physical Layer (Shop Floor)
+│
+├── Eagle Vision SL2       ┐
+├── Eagle Vision LRA1      ├── Inspection logs (.txt / .csv)
+└── Eagle Vision FSP       ┘
+        │
+        │  SMBClient (Windows XP legacy) / rsync (Linux modern)
+        ▼
+Staging Area (local server)
+        │
+        │  Airflow DAG triggers Rust binary
+        ▼
+Rust ETL Binary
+  ├── Type coercion and business rule validation
+  ├── Deterministic event_seq key generation
+  └── Upsert into PostgreSQL (ON CONFLICT DO NOTHING)
+        │
+        ▼
+PostgreSQL (partitioned by date)
+  ├── Raw layer: one partition per day per line
+  ├── Audit DAG: daily reconciliation at 23:30
+  └── Quarterly cold archive → Parquet on network share
+        │
+        ▼  [next layer — in development]
+Asset Administration Shell (AAS)
+  └── Digital Twin state synchronization via FastAPI + Eclipse Ditto
+```
 
-Todo o gerenciamento é feito via interface web rodando no próprio servidor:
-- **Airflow:** `http://localhost:8080`
-- **PostgreSQL (Web):** `http://localhost:5050`
-- **Grafana:** `http://localhost:3000`
+The PostgreSQL layer is designed as the **bronze (raw) layer** of a medallion
+data lake architecture. The next layers — silver (cleaned) and gold (aggregated)
+— are under active development, feeding directly into the AAS submodel for telemetry.
 
-*(Estes serviços podem ser acessados por outras máquinas da rede local industrial utilizando o IP fixo do servidor).*
+---
 
-### Requisitos do Ambiente
-- Ubuntu 22.04+
-- Python 3.10+
-- PostgreSQL 14+
-- Apache Airflow 2.9+
+## Tech Stack
+
+| Layer | Tool | Role |
+|---|---|---|
+| OS & containers | Linux + Docker Compose | Hosting and service isolation |
+| Database | PostgreSQL | Partitioned analytical storage |
+| Orchestration | Apache Airflow | DAG scheduling and pipeline management |
+| ETL processing | Rust + Python | Rust for high-throughput ingestion; Python for DAG logic |
+| Monitoring | Prometheus + Grafana | Infrastructure and pipeline observability |
+| File transport | SMBClient + rsync | Legacy and modern machine log collection |
+| Backup | Crontab + SMBClient | Automated disaster recovery to network share |
+| Cold storage | Parquet (Snappy) | Quarterly archival with instant partition drop |
+
+---
+
+## Network and Security
+
+The server operates on a restricted industrial control network (Layer P2),
+isolated from the corporate IT network.
+Access is controlled through a pre-existing OT/IT gateway.
+
+Firewall (ufw) allows only the minimum required ports:
+
+```
+8081/tcp  — Airflow Web UI
+5050/tcp  — pgAdmin / PostgreSQL Web
+5432/tcp  — Direct database connection (internal network only)
+3000/tcp  — Grafana dashboards
+22/tcp    — Remote SSH administration
+```
+
+---
+
+## Project Structure
+
+```
+datalake_local/
+├── dags/                    # Airflow DAG definitions (Python)
+│   ├── ingestion_sl2.py
+│   ├── ingestion_lra1.py
+│   ├── ingestion_fsp.py
+│   ├── audit_daily.py
+│   └── archive_quarterly.py
+├── rust_etl/                # Rust ETL binaries
+│   ├── src/
+│   └── Cargo.toml
+├── sql/                     # Schema, partition management, audit queries
+├── monitoring/              # Prometheus config + Grafana dashboard JSONs
+├── docker-compose.yml
+└── README.md
+```
+
+---
+
+## How to Run
+
+The system is designed to run 100% autonomously once deployed.
+
+```bash
+# Clone and configure environment
+git clone https://github.com/VictorJenckel/local_cluster_industrial_data
+cd local_cluster_industrial_data
+cp .env.example .env  # configure paths, DB credentials, SMB targets
+
+# Build and start all services
+docker compose up -d
+
+# Build Rust ETL binaries
+cd rust_etl && cargo build --release
+```
+
+Management interfaces (accessible from any machine on the industrial network
+using the server's static IP):
+
+| Interface | URL |
+|---|---|
+| Airflow | `http://<server-ip>:8081` |
+| PostgreSQL Web | `http://<server-ip>:5050` |
+| Grafana | `http://<server-ip>:3000` |
+
+**Requirements:** Linux (Ubuntu 22.04+), Docker + Compose plugin, Rust toolchain, SMBClient
+
+---
+
+## Connection to Digital Twin
+
+This project is Layer 0 of a broader Digital Twin architecture for the inspection lines.
+
+The PostgreSQL database feeds directly into:
+- **AAS submodel for Telemetry** — live asset state exposed via REST API (FastAPI, in development)
+- **Predictive maintenance models** — time-series anomaly detection on inspection event sequences
+- **Glass ribbon drift monitoring** — OpenCV optical flow analysis using frames correlated with inspection events
+
+The long-term goal: a fully synchronized digital representation of each inspection line —
+where the physical state of every machine is reflected in real time in a structured AAS,
+queryable by any system in the OT/IT stack.
+
+---
+
+## Background
+
+Built and maintained by [Victor Jenckel](https://github.com/VictorJenckel) —
+industrial automation engineer with 15+ years on the shop floor,
+specializing in OT/IT integration and Industrial Digital Twins.
+
+🇧🇷 Taubaté, SP, Brazil · 🇩🇪 German citizen  
+📧 victorjenckel@gmail.com  
+💼 [linkedin.com/in/victorjenckel](https://www.linkedin.com/in/victorjenckel)
