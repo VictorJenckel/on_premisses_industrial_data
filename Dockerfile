@@ -19,9 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY ./rust_app .
 
 # Single `cargo build --release` compiles all 4 ETL binaries:
-#   isra_etl    — ISRA machine data ingestion (MySQL source)
-#   fsp_etl     — FSP inspection line ingestion (CSV via rsync/SSH)
-#   eagle_etl   — Eagle Vision SL2/LRA1 ingestion (CSV via SMB)
+#   mirror2_etl    — Mirror2 machine data ingestion (MySQL source)
+#   cut2_etl     — Cut2 inspection line ingestion (CSV via rsync/SSH)
+#   eagle_etl   — Eagle Vision Mirror1/cut1 ingestion (CSV via SMB)
 #   backup_etl  — Quarterly cold archival to Parquet (Snappy compressed)
 #
 # Release profile applies: opt-level=3, LTO, single codegen-unit.
