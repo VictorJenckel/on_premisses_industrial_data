@@ -12,7 +12,7 @@ This project is the **data infrastructure backbone** of a Digital Twin system
 for flat glass and mirror inspection lines running in a real manufacturing facility in Brazil.
 
 It ingests, deduplicates, and stores inspection events from Eagle Vision machines
-(lines SL2, LRA1, and FSP) into a partitioned PostgreSQL database,
+(lines Mirror1, Cut1, and Cut2) into a partitioned PostgreSQL database,
 orchestrated by Apache Airflow and containerized via Docker.
 
 The physical assets being digitized: automated optical inspection machines
@@ -61,9 +61,9 @@ freeing disk space without locking production tables.
 ```
 Physical Layer (Shop Floor)
 │
-├── Eagle Vision SL2       ┐
-├── Eagle Vision LRA1      ├── Inspection logs (.txt / .csv)
-└── Eagle Vision FSP       ┘
+├── Eagle Vision mirror1      ┐
+├── Eagle Vision Cut1      ├── Inspection logs (.txt / .csv)
+└── Eagle Vision Cut2      ┘
         │
         │  SMBClient (Windows XP legacy) / rsync (Linux modern)
         ▼
@@ -131,9 +131,9 @@ Firewall (ufw) allows only the minimum required ports:
 ```
 datalake_local/
 ├── dags/                    # Airflow DAG definitions (Python)
-│   ├── ingestion_sl2.py
-│   ├── ingestion_lra1.py
-│   ├── ingestion_fsp.py
+│   ├── ingestion_mr1.py
+│   ├── ingestion_cut1.py
+│   ├── ingestion_cut2.py
 │   ├── audit_daily.py
 │   └── archive_quarterly.py
 ├── rust_etl/                # Rust ETL binaries
