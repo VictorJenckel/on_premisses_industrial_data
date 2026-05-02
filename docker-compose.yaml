@@ -43,14 +43,14 @@ x-airflow-common: &airflow-common
     PG_USER: ${PG_USER}
     PG_PASSWORD: ${PG_PASSWORD}
 
-    # --- Machine connectivity (FSP line) ---
-    FSP_MACHINE_IP: ${FSP_MACHINE_IP}
-    FSP_MACHINE_USER: ${FSP_MACHINE_USER}
-    FSP_MACHINE_PASS: ${FSP_MACHINE_PASS}
-    FSP_REMOTE_DATA_DIR: ${FSP_REMOTE_DATA_DIR}
-    FSP_STAGING_DIR: /home/dc2/temp/fsp
+    # --- Machine connectivity (CUT2 line) ---
+    CUT2_MACHINE_IP: ${CUT2_MACHINE_IP}
+    CUT2_MACHINE_USER: ${CUT2_MACHINE_USER}
+    CUT2_MACHINE_PASS: ${CUT2_MACHINE_PASS}
+    CUT2_REMOTE_DATA_DIR: ${CUT2_REMOTE_DATA_DIR}
+    CUT2_STAGING_DIR: /home/dc2/temp/CUT2
 
-    # --- Machine connectivity (Eagle Vision — SL2 / LRA1 lines) ---
+    # --- Machine connectivity (Eagle Vision — MIRROR1 / CUT1 lines) ---
     EAGLE_SMB_HOST: ${EAGLE_SMB_HOST}
     EAGLE_SMB_USER: ${EAGLE_SMB_USER}
     EAGLE_SMB_PASS: ${EAGLE_SMB_PASS}
@@ -204,3 +204,4 @@ services:
         condition: service_healthy
       airflow-init:
         condition: service_completed_successfully
+
